@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=timo
+User=your_username
 WorkingDirectory=/opt/immich-backup-manager
 ExecStart=/usr/bin/python3 /opt/immich-backup-manager/app.py
 Restart=on-failure
