@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Immich Backup Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:#0d0f12; --surface:#13161b; --surface2:#191d24;
+  --border:#1e2329; --border2:#252b34;
+  --accent:#00e5a0; --accent-dim:rgba(0,229,160,.1); --accent-glow:rgba(0,229,160,.22);
+  --warn:#f0a500; --warn-dim:rgba(240,165,0,.1);
+  --error:#ff4f4f; --error-dim:rgba(255,79,79,.1);
+  --blue:#4da6ff; --blue-dim:rgba(77,166,255,.1);
+  --red-deep:#c0392b; --red-deep-dim:rgba(192,57,43,.12);
+  --text:#c8d0dc; --text-dim:#5a6472; --text-bright:#eef1f5;
+  --mono:'IBM Plex Mono',monospace; --sans:'IBM Plex Sans',sans-serif;
+}
+body { background:var(--bg); color:var(--text); font-family:var(--sans); min-height:100vh;
+  background-image:radial-gradient(ellipse 80% 25% at 50% 0%,rgba(0,229,160,.04) 0%,transparent 60%); }
+
+/* Header */
+header { border-bottom:1px solid var(--border); padding:.9rem 1.5rem; display:flex; align-items:center; justify-content:space-between; background:var(--surface); position:sticky; top:0; z-index:50; }
+.logo { font-family:var(--mono); font-size:.65rem; font-weight:600; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); display:flex; align-items:center; gap:.6rem; }
+.logo-dot { width:7px; height:7px; background:var(--accent); border-radius:50%; box-shadow:0 0 8px var(--accent); animation:pulse 2s ease infinite; }
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.header-right { display:flex; align-items:center; gap:1rem; }
+.hdr-status { font-family:var(--mono); font-size:.62rem; letter-spacing:.08em; text-transform:uppercase; color:var(--text-dim); display:flex; align-items:center; gap:.4rem; }
+.hdr-status.running { color:var(--accent); }
+.hdr-status.restoring { color:var(--warn); }
+.hdr-status .dot { width:6px;height:6px;border-radius:50%;background:currentColor; }
+.hdr-status.running .dot,.hdr-status.restoring .dot { animation:pulse .8s ease infinite; }
+.logout-btn { font-family:var(--mono); font-size:.62rem; letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim); text-decoration:none; border:1px solid var(--border2); padding:.28rem .65rem; border-radius:3px; transition:color .2s,border-color .2s; }
+.logout-btn:hover { color:var(--text); border-color:var(--text-dim); }
+
+/* SSD Bar */
+.ssd-bar { background:var(--surface); border-bottom:1px solid var(--border); padding:.7rem 1.5rem; display:flex; align-items:center; gap:1.5rem; flex-wrap:wrap; }
+.ssd-info { display:flex; align-items:center; gap:.8rem; flex:1; min-width:180px; }
+.ssd-name { font-family:var(--mono); font-size:.8rem; font-weight:600; color:var(--text-bright); }
+.ssd-sub  { font-family:var(--mono); font-size:.62rem; color:var(--text-dim); }
+.pill { font-family:var(--mono); font-size:.6rem; font-weight:600; letter-spacing:.1em; text-transform:uppercase; padding:.2rem .55rem; border-radius:3px; }
+.pill-ok   { background:var(--accent-dim); color:var(--accent); border:1px solid rgba(0,229,160,.25); }
+.pill-warn { background:var(--warn-dim);   color:var(--warn);   border:1px solid rgba(240,165,0,.25); }
+.pill-err  { background:var(--error-dim);  color:var(--error);  border:1px solid rgba(255,79,79,.25); }
+.ssd-usage { display:flex; align-items:center; gap:.7rem; flex:2; min-width:180px; }
+.usage-track { flex:1; height:5px; background:var(--border2); border-radius:99px; overflow:hidden; }
+.usage-fill  { height:100%; background:var(--accent); border-radius:99px; transition:width .6s; }
+.usage-fill.warn{background:var(--warn)}.usage-fill.crit{background:var(--error)}
+.usage-text { font-family:var(--mono); font-size:.68rem; color:var(--text-dim); white-space:nowrap; }
+.ssd-btns { display:flex; gap:.5rem; }
+
+/* Tabs */
+.tabs-wrap { border-bottom:1px solid var(--border); background:var(--surface); padding:0 1.5rem; display:flex; overflow-x:auto; }
+.tab-btn { font-family:var(--mono); font-size:.68rem; font-weight:500; letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim); background:transparent; border:none; border-bottom:2px solid transparent; padding:.8rem 1.1rem; cursor:pointer; white-space:nowrap; transition:color .2s,border-color .2s; }
+.tab-btn:hover{color:var(--text)}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-btn.restore-tab{color:var(--warn)}
+.tab-btn.restore-tab.active{color:var(--warn);border-bottom-color:var(--warn)}
+
+main { max-width:880px; margin:0 auto; padding:1.8rem 1.5rem 4rem; }
+.tab-panel { display:none; }
+.tab-panel.active { display:block; animation:fadeIn .2s ease; }
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* Section labels & General UI */
+.slabel { font-family:var(--mono); font-size:.6rem; font-weight:600; letter-spacing:.2em; text-transform:uppercase; color:var(--text-dim); margin-bottom:.9rem; margin-top:1.5rem; display:flex; align-items:center; gap:.6rem; }
+.slabel:first-child{margin-top:0}
+.slabel::after{content:'';flex:1;height:1px;background:var(--border)}
+
+.btn { font-family:var(--mono); font-size:.68rem; font-weight:600; letter-spacing:.1em; text-transform:uppercase; padding:.55rem 1rem; border-radius:4px; border:1px solid transparent; cursor:pointer; transition:opacity .15s,transform .1s,box-shadow .2s; display:inline-flex; align-items:center; gap:.45rem; }
+.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.35;cursor:not-allowed;transform:none!important}
+.btn-primary{background:var(--accent);color:#000}
+.btn-primary:hover:not(:disabled){box-shadow:0 0 14px var(--accent-glow);opacity:.9}
+.btn-ghost{background:transparent;color:var(--text);border-color:var(--border2)}
+.btn-ghost:hover:not(:disabled){border-color:var(--text-dim);background:var(--surface2)}
+.btn-warn{background:transparent;color:var(--warn);border-color:rgba(240,165,0,.3)}
+.btn-warn:hover:not(:disabled){background:var(--warn-dim)}
+.btn-blue{background:transparent;color:var(--blue);border-color:rgba(77,166,255,.3)}
+.btn-blue:hover:not(:disabled){background:var(--blue-dim)}
+.btn-danger{background:var(--red-deep);color:#fff}
+.btn-danger:hover:not(:disabled){opacity:.85;box-shadow:0 0 12px rgba(192,57,43,.4)}
+.btn-sm{font-size:.6rem;padding:.3rem .65rem}
+.btn-tiny{font-family:var(--mono);font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;padding:.18rem .45rem;border-radius:3px;border:1px solid var(--border2);background:transparent;color:var(--text-dim);cursor:pointer}
+.btn-tiny:hover{color:var(--text);border-color:var(--text-dim)}
+.btn-row{display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1.2rem}
+
+/* Terminal */
+.terminal-wrap{background:#0a0c0f;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.terminal-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:.45rem .9rem;display:flex;align-items:center;justify-content:space-between}
+.terminal-title{font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim);display:flex;align-items:center;gap:.4rem}
+.t-dot{width:6px;height:6px;border-radius:50%;background:var(--text-dim)}
+.t-dot.run{background:var(--accent);box-shadow:0 0 5px var(--accent);animation:pulse .9s ease infinite}
+.t-dot.done{background:var(--accent)}
+.t-dot.err{background:var(--error)}
+.t-dot.warn-run{background:var(--warn);box-shadow:0 0 5px var(--warn);animation:pulse .9s ease infinite}
+.term-out{font-family:var(--mono);font-size:.7rem;line-height:1.75;color:#8fa3b0;padding:.9rem;height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+.term-out .ll{color:var(--accent)}
+.term-out .le{color:var(--error)}
+.term-out .ld{color:var(--accent);font-weight:600}
+.term-out .lnc{color:var(--blue)}
+.term-out .lw{color:var(--warn)}
+.term-out .lh{color:var(--text-bright);font-weight:600}
+
+/* Forms & Tables */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+.form-grid.full{grid-template-columns:1fr}
+.field{display:flex;flex-direction:column;gap:.35rem}
+label.flabel{font-family:var(--mono);font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim)}
+input[type=text],input[type=password],input[type=number],select{
+  background:var(--surface2);border:1px solid var(--border2);border-radius:4px;
+  color:var(--text);font-family:var(--mono);font-size:.82rem;padding:.55rem .8rem;outline:none;transition:border-color .2s;width:100%}
+input:focus,select:focus{border-color:var(--accent)}
+.toggle-row{display:flex;align-items:center;gap:.7rem;padding:.7rem .9rem;background:var(--surface2);border:1px solid var(--border2);border-radius:4px;margin-bottom:.8rem}
+.toggle-label{font-family:var(--sans);font-size:.85rem;color:var(--text);flex:1}
+.toggle-sub{font-family:var(--mono);font-size:.62rem;color:var(--text-dim)}
+.switch{position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:var(--border2);border-radius:99px;cursor:pointer;transition:background .2s}
+.slider::before{content:'';position:absolute;height:14px;width:14px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:transform .2s}
+input:checked+.slider{background:var(--accent)}
+input:checked+.slider::before{transform:translateX(16px)}
+
+.stats-table{width:100%;border-collapse:collapse;margin-bottom:1.5rem}
+.stats-table th, .stats-table td{font-family:var(--mono);font-size:.75rem;padding:.6rem .8rem;border-bottom:1px solid var(--border);text-align:left}
+.stats-table th{font-size:.6rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.12em}
+.stats-table td.name{color:var(--accent);font-weight:600}
+.stats-table td.dim{color:var(--text-dim)}
+.dump-item{display:flex;align-items:center;justify-content:space-between;padding:.45rem .8rem;background:var(--surface2);border:1px solid var(--border2);border-radius:4px;margin-bottom:.4rem;font-family:var(--mono);font-size:.7rem}
+
+/* Restore Components */
+.restore-warn-box{background:rgba(240,165,0,.07);border:1px solid rgba(240,165,0,.3);border-radius:6px;padding:1rem 1.2rem;margin-bottom:1.2rem}
+.restore-warn-box .rw-title{font-family:var(--mono);font-size:.7rem;font-weight:600;color:var(--warn);letter-spacing:.08em;margin-bottom:.4rem}
+.restore-warn-box p{font-size:.82rem;color:var(--text);line-height:1.6}
+
+.restore-danger-box{background:var(--red-deep-dim);border:1px solid rgba(192,57,43,.35);border-radius:6px;padding:1rem 1.2rem;margin-bottom:1.2rem}
+.restore-danger-box .rd-title{font-family:var(--mono);font-size:.7rem;font-weight:600;color:var(--error);letter-spacing:.08em;margin-bottom:.4rem}
+.restore-danger-box p{font-size:.82rem;color:var(--text);line-height:1.6}
+
+.mode-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;margin-bottom:1.2rem}
+.mode-card{background:var(--surface2);border:2px solid var(--border2);border-radius:6px;padding:1rem;cursor:pointer;transition:border-color .2s,background .2s}
+.mode-card:hover{border-color:var(--border)}
+.mode-card.selected{border-color:var(--accent);background:var(--accent-dim)}
+.mode-card.selected.warn-mode{border-color:var(--warn);background:var(--warn-dim)}
+.mode-card.selected.danger-mode{border-color:var(--error);background:var(--error-dim)}
+.mode-icon{font-size:1.4rem;margin-bottom:.5rem}
+.mode-name{font-family:var(--mono);font-size:.72rem;font-weight:600;color:var(--text-bright);margin-bottom:.25rem}
+.mode-desc{font-size:.75rem;color:var(--text-dim);line-height:1.5}
+
+.precheck-item{display:flex;align-items:center;gap:.7rem;padding:.45rem 0;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:.72rem}
+.precheck-item:last-child{border-bottom:none}
+.precheck-key{color:var(--text-dim);flex:1}
+.precheck-val{color:var(--text)}
+.precheck-val.ok{color:var(--accent)}
+.precheck-val.warn{color:var(--warn)}
+.precheck-val.err{color:var(--error)}
+
+.dump-select-item{display:flex;align-items:center;gap:.8rem;padding:.7rem .9rem;background:var(--surface2);border:2px solid var(--border2);border-radius:5px;margin-bottom:.5rem;cursor:pointer;transition:border-color .2s}
+.dump-select-item:hover{border-color:var(--border)}
+.dump-select-item.selected{border-color:var(--accent)}
+.dump-select-item input[type=radio]{accent-color:var(--accent)}
+.dump-info{flex:1}
+.dump-fname{font-family:var(--mono);font-size:.72rem;color:var(--text-bright)}
+.dump-meta{font-family:var(--mono);font-size:.65rem;color:var(--text-dim);margin-top:.15rem}
+.dump-version{font-family:var(--mono);font-size:.65rem}
+.dump-version.match{color:var(--accent)}
+.dump-version.mismatch{color:var(--warn)}
+.dump-size{font-family:var(--mono);font-size:.65rem;color:var(--text-dim)}
+
+.confirm-check-wrap{display:flex;align-items:flex-start;gap:.8rem;padding:.9rem;background:var(--red-deep-dim);border:1px solid rgba(192,57,43,.3);border-radius:5px;margin-bottom:1rem;cursor:pointer}
+.confirm-check-wrap input{margin-top:2px;accent-color:var(--error);cursor:pointer}
+.confirm-text{font-size:.82rem;color:var(--text);line-height:1.6}
+
+#toast{position:fixed;bottom:2rem;left:50%;transform:translateX(-50%) translateY(80px);background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:.65rem 1.1rem;font-family:var(--mono);font-size:.72rem;color:var(--text-bright);z-index:100;transition:transform .3s,opacity .3s;opacity:0}
+#toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+#toast.ok{border-color:rgba(0,229,160,.4)}
+#toast.err{border-color:rgba(255,79,79,.4)}
+
+@media(max-width:600px){
+  .form-grid{grid-template-columns:1fr}
+  .mode-cards{grid-template-columns:1fr}
+  .ssd-usage{display:none}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="logo-dot"></span>Immich Backup Manager</div>
+  <div class="header-right">
+    <div class="hdr-status" id="hdr-status">
+      <span class="dot"></span><span id="hdr-txt">Bereit</span>
+    </div>
+    <a href="/logout" class="logout-btn">Abmelden</a>
+  </div>
+</header>
+
+<div class="ssd-bar">
+  <div class="ssd-info">
+    <div>
+      <div class="ssd-name" id="ssd-name">—</div>
+      <div class="ssd-sub" id="ssd-sub">UUID: —</div>
+    </div>
+    <span class="pill pill-err" id="ssd-pill">Unbekannt</span>
+  </div>
+  <div class="ssd-usage">
+    <div class="usage-track"><div class="usage-fill" id="usage-fill" style="width:0%"></div></div>
+    <div class="usage-text" id="usage-text">—</div>
+  </div>
+  <div class="ssd-btns">
+    <button class="btn btn-ghost btn-sm" id="btn-rescan" onclick="doRescan()">↺ Scan</button>
+    <button class="btn btn-ghost btn-sm" id="btn-mount"  onclick="doMount()">↑ Mount</button>
+    <button class="btn btn-warn  btn-sm" id="btn-eject"  onclick="doEject()">↓ Auswerfen</button>
+  </div>
+</div>
+
+<div class="tabs-wrap">
+  <button class="tab-btn active" onclick="switchTab('backup',this)">Backup</button>
+  <button class="tab-btn" onclick="switchTab('config',this)">Konfiguration</button>
+  <button class="tab-btn" onclick="switchTab('schedule',this)">Zeitplan</button>
+  <button class="tab-btn" onclick="switchTab('nextcloud',this)">Nextcloud</button>
+  <button class="tab-btn" onclick="switchTab('stats',this)">Statistik</button>
+  <button class="tab-btn restore-tab" onclick="switchTab('restore',this)">⚠ Restore</button>
+  <button class="tab-btn" onclick="switchTab('log',this)">Log</button>
+</div>
+
+<main>
+
+<!-- ══ BACKUP ══ -->
+<div class="tab-panel active" id="tab-backup">
+  <div class="btn-row" style="margin-top:.3rem">
+    <button class="btn btn-primary" id="btn-backup" onclick="startBackup()">▶ Backup starten</button>
+  </div>
+  <div class="terminal-wrap">
+    <div class="terminal-bar">
+      <div class="terminal-title"><span class="t-dot" id="b-dot"></span>Live-Ausgabe</div>
+      <div class="t-actions">
+        <button class="btn-tiny" onclick="clearTerm('backup-term')">Leeren</button>
+        <button class="btn-tiny" onclick="scrollTerm('backup-term')">↓</button>
+      </div>
+    </div>
+    <div class="term-out" id="backup-term"><span style="color:var(--text-dim)">Bereit.</span></div>
+  </div>
+</div>
+
+<!-- ══ KONFIGURATION ══ -->
+<div class="tab-panel" id="tab-config">
+  <div class="slabel">Aktive Backup-SSD festlegen</div>
+  <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:1rem">
+    Wähle die angesteckte Partition aus. Das System speichert die eindeutige Dateisystem-UUID, sodass Backups auch nach Vertauschung von SATA-Ports stabil funktionieren. RAID-Disks sind geschützt und werden nicht aufgeführt.
+  </p>
+  <div class="btn-row">
+    <button class="btn btn-ghost" onclick="loadDisks()">🔍 Angesteckte SSDs suchen</button>
+  </div>
+  <div class="field" style="margin-bottom:1rem">
+    <label class="flabel">Erkannte Partitionen</label>
+    <select id="disk-select">
+      <option value="">Lade Partitionen...</option>
+    </select>
+  </div>
+  <div class="field" style="margin-bottom:1.2rem">
+    <label class="flabel">Bezeichnung / Label (optional)</label>
+    <input type="text" id="disk-label" placeholder="z. B. Backup-SSD 1">
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-primary" onclick="saveDiskConfig()">💾 Als aktive Backup-SSD speichern</button>
+  </div>
+</div>
+
+<!-- ══ ZEITPLAN ══ -->
+<div class="tab-panel" id="tab-schedule">
+  <div class="slabel">Täglicher Lauf</div>
+  <div class="toggle-row">
+    <div><div class="toggle-label">Täglich</div><div class="toggle-sub">Jeden Tag zur gewählten Uhrzeit</div></div>
+    <label class="switch"><input type="checkbox" id="daily-en"><span class="slider"></span></label>
+  </div>
+  <div class="form-grid">
+    <div class="field"><label class="flabel">Stunde</label><input type="number" id="daily-h" min="0" max="23" value="3"></div>
+    <div class="field"><label class="flabel">Minute</label><input type="number" id="daily-m" min="0" max="59" value="0"></div>
+  </div>
+
+  <div class="slabel">Wöchentlicher Lauf</div>
+  <div class="toggle-row">
+    <div><div class="toggle-label">Wöchentlich</div><div class="toggle-sub">Einmal pro Woche zu festem Wochentag</div></div>
+    <label class="switch"><input type="checkbox" id="weekly-en"><span class="slider"></span></label>
+  </div>
+  <div class="form-grid">
+    <div class="field"><label class="flabel">Wochentag</label>
+      <select id="weekly-d">
+        <option value="1">Montag</option><option value="2">Dienstag</option>
+        <option value="3">Mittwoch</option><option value="4">Donnerstag</option>
+        <option value="5">Freitag</option><option value="6">Samstag</option>
+        <option value="0">Sonntag</option>
+      </select>
+    </div>
+    <div class="field"><label class="flabel">Uhrzeit</label>
+      <div style="display:flex;gap:.5rem">
+        <input type="number" id="weekly-h" min="0" max="23" value="2" placeholder="HH">
+        <input type="number" id="weekly-m" min="0" max="59" value="0" placeholder="MM">
+      </div>
+    </div>
+  </div>
+
+  <div class="btn-row" style="margin-top:1.2rem">
+    <button class="btn btn-primary" onclick="saveCron()">Speichern & Aktivieren</button>
+  </div>
+</div>
+
+<!-- ══ NEXTCLOUD ══ -->
+<div class="tab-panel" id="tab-nextcloud">
+  <div class="toggle-row">
+    <div><div class="toggle-label">Nextcloud-Upload aktiviert</div>
+    <div class="toggle-sub">DB-Dump nach jedem Backup hochladen</div></div>
+    <label class="switch"><input type="checkbox" id="nc-en"><span class="slider"></span></label>
+  </div>
+  <div class="form-grid full">
+    <div class="field"><label class="flabel">Nextcloud URL</label><input type="text" id="nc-url"></div>
+  </div>
+  <div class="form-grid">
+    <div class="field"><label class="flabel">Benutzername</label><input type="text" id="nc-user"></div>
+    <div class="field"><label class="flabel">App-Passwort</label><input type="password" id="nc-pass" placeholder="••••••••"></div>
+  </div>
+  <div class="form-grid full">
+    <div class="field"><label class="flabel">Zielordner</label><input type="text" id="nc-path"></div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-primary" onclick="saveNextcloud()">Speichern</button>
+    <button class="btn btn-ghost" onclick="testNextcloud()">Verbindung testen</button>
+    <button class="btn btn-blue" onclick="uploadNow()">Jetzt DB hochladen</button>
+  </div>
+  <div id="nc-status" style="font-family:var(--mono);font-size:.72rem;color:var(--text-dim)"></div>
+</div>
+
+<!-- ══ STATISTIK ══ -->
+<div class="tab-panel" id="tab-stats">
+  <div class="btn-row" style="margin-top:.3rem">
+    <button class="btn btn-ghost" onclick="loadStats()">Aktualisieren</button>
+  </div>
+  <div class="slabel">Verzeichnisse</div>
+  <div id="stats-wrap"></div>
+  <div class="slabel">DB-Dumps auf SSD</div>
+  <div id="dumps-wrap"></div>
+</div>
+
+<!-- ══ RESTORE ══ -->
+<div class="tab-panel" id="tab-restore">
+  <div class="restore-danger-box">
+    <div class="rd-title">⚠ Achtung – Destruktiver Vorgang</div>
+    <p>Ein Restore überschreibt vorhandene lokale Daten. Stelle sicher, dass die gewünschte SSD gemountet ist. Im Zweifel erst ein aktuelles Backup anlegen.</p>
+  </div>
+
+  <div class="slabel">Schritt 1 – Modus wählen</div>
+  <div class="mode-cards">
+    <div class="mode-card" id="mode-db" onclick="selectMode('db_only')">
+      <div class="mode-icon">🗄️</div>
+      <div class="mode-name">Nur Datenbank</div>
+      <div class="mode-desc">Stellt Alben, Tags, Metadaten und Gesichtserkennung wieder her. Bilddateien bleiben unberührt.</div>
+    </div>
+    <div class="mode-card" id="mode-files" onclick="selectMode('files_only')">
+      <div class="mode-icon">📁</div>
+      <div class="mode-name">Nur Dateien</div>
+      <div class="mode-desc">Kopiert Fotos und Videos von der SSD zurück. Immich läuft weiter, kein Container-Stopp.</div>
+    </div>
+    <div class="mode-card" id="mode-full" onclick="selectMode('full')">
+      <div class="mode-icon">🔄</div>
+      <div class="mode-name">Komplett</div>
+      <div class="mode-desc">Stellt Dateien und Datenbank vollständig wieder her. Immich-Container werden neu gestartet.</div>
+    </div>
+  </div>
+
+  <!-- Precheck -->
+  <div id="precheck-section" style="display:none">
+    <div class="slabel">Schritt 2 – Vorprüfung</div>
+    <div style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:.8rem 1rem;margin-bottom:1.2rem" id="precheck-items">
+      <div style="font-family:var(--mono);font-size:.72rem;color:var(--text-dim)">Prüfe...</div>
+    </div>
+    <div id="version-warning" style="display:none" class="restore-warn-box">
+      <div class="rw-title">⚠ Versionswarnung</div>
+      <p id="version-warning-text"></p>
+    </div>
+  </div>
+
+  <!-- Dump selection -->
+  <div id="dump-section" style="display:none">
+    <div class="slabel">Schritt 3 – Dump auswählen</div>
+    <div id="dump-list"></div>
+  </div>
+
+  <!-- Confirm -->
+  <div id="confirm-section" style="display:none">
+    <div class="slabel">Schritt 4 – Bestätigen</div>
+    <label class="confirm-check-wrap" id="confirm-wrap">
+      <input type="checkbox" id="confirm-check" onchange="updateRestoreBtn()">
+      <span class="confirm-text">Ich verstehe, dass dieser Vorgang bestehende Daten überschreibt und nicht rückgängig gemacht werden kann.</span>
+    </label>
+    <div class="btn-row">
+      <button class="btn btn-danger" id="btn-restore" disabled onclick="startRestore()">🔄 Restore starten</button>
+    </div>
+  </div>
+
+  <!-- Terminal -->
+  <div id="restore-terminal-wrap" style="display:none">
+    <div class="slabel">Fortschritt</div>
+    <div class="terminal-wrap">
+      <div class="terminal-bar">
+        <div class="terminal-title"><span class="t-dot" id="r-dot"></span>Restore-Ausgabe</div>
+        <div class="t-actions">
+          <button class="btn-tiny" onclick="scrollTerm('restore-term')">↓</button>
+        </div>
+      </div>
+      <div class="term-out" id="restore-term"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ LOG ══ -->
+<div class="tab-panel" id="tab-log">
+  <div class="btn-row"><button class="btn btn-ghost" onclick="loadLog()">Aktualisieren</button></div>
+  <div class="term-out" id="log-out">Lade...</div>
+</div>
+
+</main>
+<div id="toast"></div>
+
+<script>
+let backupRunning = false, restoreRunning = false;
+let detectedDevices = [];
+let selectedMode = null, selectedDump = null;
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'config')    loadDisks();
+  if (name === 'stats')     loadStats();
+  if (name === 'log')       loadLog();
+  if (name === 'schedule')  loadCron();
+  if (name === 'nextcloud') loadNextcloud();
+  if (name === 'restore')   initRestore();
+}
+
+async function refreshStatus() {
+  try {
+    const d = await (await fetch('/api/status')).json();
+    const ssd = d.ssd;
+    const nameEl = document.getElementById('ssd-name');
+    const subEl  = document.getElementById('ssd-sub');
+    const pillEl = document.getElementById('ssd-pill');
+    const fillEl = document.getElementById('usage-fill');
+    const textEl = document.getElementById('usage-text');
+
+    nameEl.textContent = ssd.label || 'Backup-SSD';
+    subEl.textContent  = ssd.uuid ? `UUID: ${ssd.uuid.substring(0,8)}... (${ssd.device||'—'})` : 'Keine SSD hinterlegt';
+
+    if (!ssd.present) {
+      pillEl.className = 'pill pill-err'; pillEl.textContent = 'Nicht angeschlossen';
+      fillEl.style.width = '0%'; textEl.textContent = '—';
+    } else if (ssd.mounted) {
+      pillEl.className = 'pill pill-ok'; pillEl.textContent = 'Gemountet';
+      if (ssd.use_pct) {
+        fillEl.style.width = ssd.use_pct;
+        fillEl.className = 'usage-fill' + (parseInt(ssd.use_pct)>=90?' crit':parseInt(ssd.use_pct)>=75?' warn':'');
+        textEl.textContent = `${ssd.used} / ${ssd.size} (${ssd.use_pct})`;
+      }
+    } else {
+      pillEl.className = 'pill pill-warn'; pillEl.textContent = 'Bereit (nicht gemountet)';
+      fillEl.style.width = '0%'; textEl.textContent = '—';
+    }
+
+    backupRunning = d.backup_running;
+    restoreRunning = d.restore_running;
+    updateHdr();
+    updateButtons();
+  } catch(e) {}
+}
+
+function updateHdr() {
+  const el = document.getElementById('hdr-status');
+  const tx = document.getElementById('hdr-txt');
+  if (restoreRunning) { el.className = 'hdr-status restoring'; tx.textContent = 'Restore läuft…'; }
+  else if (backupRunning) { el.className = 'hdr-status running'; tx.textContent = 'Backup läuft…'; }
+  else { el.className = 'hdr-status'; tx.textContent = 'Bereit'; }
+}
+
+function updateButtons() {
+  document.getElementById('btn-backup').disabled = backupRunning || restoreRunning;
+  document.getElementById('btn-eject').disabled  = backupRunning || restoreRunning;
+  const rb = document.getElementById('btn-restore');
+  if (rb) rb.disabled = backupRunning || restoreRunning || !document.getElementById('confirm-check')?.checked;
+}
+
+// Disks / UUID Config
+async function loadDisks() {
+  const sel = document.getElementById('disk-select');
+  sel.innerHTML = '<option>Suche Partitionen...</option>';
+  const res = await (await fetch('/api/scan-sata-devices')).json();
+  detectedDevices = res.devices || [];
+  sel.innerHTML = '';
+  if (!detectedDevices.length) {
+    sel.innerHTML = '<option value="">Keine externen SSD-Partitionen gefunden</option>';
+    return;
+  }
+  detectedDevices.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d.uuid;
+    opt.textContent = `${d.device} (${d.size}, ${d.fstype}) - UUID: ${d.uuid.substring(0,8)}... ${d.label?`[${d.label}]`:''}`;
+    if (d.is_current) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+async function saveDiskConfig() {
+  const sel = document.getElementById('disk-select');
+  const uuid = sel.value;
+  const label = document.getElementById('disk-label').value;
+  const match = detectedDevices.find(d => d.uuid === uuid);
+  const d = await apiPost('/api/sata-config', { uuid, label, device: match ? match.device : '' });
+  toast(d.msg, d.ok ? 'ok' : 'err');
+  refreshStatus();
+}
+
+// Mount/Unmount/Scan
+async function doRescan() {
+  const d = await apiPost('/api/rescan');
+  toast(d.msg, d.ok?'ok':'err');
+  refreshStatus();
+}
+async function doMount() {
+  const d = await apiPost('/api/mount');
+  toast(d.msg, d.ok?'ok':'err');
+  refreshStatus();
+}
+async function doEject() {
+  if (!confirm('SSD sicher aushängen?')) return;
+  const d = await apiPost('/api/unmount');
+  toast(d.msg, d.ok?'ok':'err');
+  refreshStatus();
+}
+
+// Backup
+async function startBackup() {
+  const d = await apiPost('/api/backup/start');
+  toast(d.msg, d.ok?'ok':'err');
+  if (!d.ok) return;
+  clearTerm('backup-term');
+  backupRunning = true; updateHdr(); updateButtons();
+  connectSSE('/api/backup/stream', 'backup-term', 'b-dot', () => {
+    backupRunning = false; updateHdr(); updateButtons(); refreshStatus();
+  });
+}
+
+// Restore Logik
+function initRestore() {
+  selectedMode = null; selectedDump = null;
+  document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected','warn-mode','danger-mode'));
+  document.getElementById('precheck-section').style.display = 'none';
+  document.getElementById('dump-section').style.display = 'none';
+  document.getElementById('confirm-section').style.display = 'none';
+  document.getElementById('restore-terminal-wrap').style.display = 'none';
+}
+
+async function selectMode(mode) {
+  selectedMode = mode; selectedDump = null;
+  document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected','warn-mode','danger-mode'));
+  const card = document.getElementById('mode-' + mode.replace('_only',''));
+  const clsMap = {'db_only':'warn-mode', 'files_only':'warn-mode', 'full':'danger-mode'};
+  card.classList.add('selected', clsMap[mode] || '');
+
+  document.getElementById('precheck-section').style.display = 'block';
+  document.getElementById('dump-section').style.display = 'none';
+  document.getElementById('confirm-section').style.display = 'none';
+  document.getElementById('precheck-items').innerHTML = '<div style="font-family:var(--mono);font-size:.72rem;color:var(--text-dim)">Prüfe Backup-Bestand...</div>';
+
+  const d = await (await fetch('/api/restore/info')).json();
+  renderPrecheck(d, mode);
+}
+
+function renderPrecheck(d, mode) {
+  const items = [];
+  items.push({key:'SSD gemountet', val:d.ssd_mounted?'Ja':'Nein – erst mounten!', cls:d.ssd_mounted?'ok':'err'});
+  items.push({key:'Laufende Immich-Version', val:d.running_version, cls:'ok'});
+  if (d.meta.immich_version) items.push({key:'Version im letzten Backup', val:d.meta.immich_version, cls: d.meta.immich_version===d.running_version?'ok':'warn'});
+  if (d.meta.timestamp) items.push({key:'Letztes Backup', val:d.meta.timestamp.replace('T',' ').substring(0,16), cls:'ok'});
+  items.push({key:'docker-compose.yml im Backup', val:d.config_backup.compose?'Vorhanden':'Fehlt', cls:d.config_backup.compose?'ok':'warn'});
+  items.push({key:'.env im Backup', val:d.config_backup.env?'Vorhanden':'Fehlt', cls:d.config_backup.env?'ok':'warn'});
+  items.push({key:'DB-Dumps verfügbar', val:d.dumps.length, cls:d.dumps.length>0?'ok':'err'});
+
+  document.getElementById('precheck-items').innerHTML = items.map(i =>
+    `<div class="precheck-item"><span class="precheck-key">${i.key}</span><span class="precheck-val ${i.cls}">${i.val}</span></div>`
+  ).join('');
+
+  const vw = document.getElementById('version-warning');
+  if (d.version_warnings.length > 0 && mode !== 'files_only') {
+    vw.style.display = 'block';
+    document.getElementById('version-warning-text').textContent =
+      `Einige Dumps wurden mit einer abweichenden Immich-Version erstellt (${d.running_version} läuft aktuell). Es empfiehlt sich, nur Dumps passend zur laufenden Version zu restoren.`;
+  } else {
+    vw.style.display = 'none';
+  }
+
+  if (mode === 'db_only' || mode === 'full') {
+    document.getElementById('dump-section').style.display = 'block';
+    renderDumpList(d.dumps, d.running_version);
+  } else {
+    document.getElementById('dump-section').style.display = 'none';
+    document.getElementById('confirm-section').style.display = 'block';
+    document.getElementById('confirm-check').checked = false;
+    updateRestoreBtn();
+  }
+}
+
+function renderDumpList(dumps, runningVersion) {
+  const el = document.getElementById('dump-list');
+  if (!dumps.length) {
+    el.innerHTML = '<div style="font-family:var(--mono);font-size:.75rem;color:var(--error)">Keine Dumps auf dieser SSD gefunden.</div>';
+    return;
+  }
+  el.innerHTML = dumps.map((d, i) => {
+    const match = d.version === runningVersion;
+    const vCls = d.version === 'unknown' ? '' : 'dump-version ' + (match ? 'match' : 'mismatch');
+    const vTxt = d.version === 'unknown' ? 'Version unbekannt' : (match ? `✓ v${d.version}` : `⚠ v${d.version} ≠ läuft v${runningVersion}`);
+    return `<label class="dump-select-item" id="dump-item-${i}" onclick="selectDump('${d.filename}', ${i})">
+      <input type="radio" name="dump" value="${d.filename}">
+      <div class="dump-info">
+        <div class="dump-fname">${d.filename}</div>
+        <div class="dump-meta">${d.mtime}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="${vCls}">${vTxt}</div>
+        <div class="dump-size">${d.size_mb} MB</div>
+      </div>
+    </label>`;
+  }).join('');
+}
+
+function selectDump(filename, idx) {
+  selectedDump = filename;
+  document.querySelectorAll('.dump-select-item').forEach(el => el.classList.remove('selected'));
+  document.getElementById('dump-item-' + idx).classList.add('selected');
+  document.getElementById('confirm-section').style.display = 'block';
+  document.getElementById('confirm-check').checked = false;
+  updateRestoreBtn();
+}
+
+function updateRestoreBtn() {
+  const checked = document.getElementById('confirm-check')?.checked;
+  const dumpOk = (selectedMode === 'files_only' || selectedDump !== null);
+  const rb = document.getElementById('btn-restore');
+  if (rb) rb.disabled = !checked || !dumpOk || backupRunning || restoreRunning;
+}
+
+async function startRestore() {
+  if (!confirm(`Restore wirklich starten?\nModus: ${selectedMode}\n${selectedDump ? 'Dump: ' + selectedDump : ''}\n\nVorhandene Daten werden überschrieben!`)) return;
+
+  document.getElementById('restore-terminal-wrap').style.display = 'block';
+  clearTerm('restore-term');
+  document.getElementById('btn-restore').disabled = true;
+
+  const d = await apiPost('/api/restore/start', { mode: selectedMode, dump_file: selectedDump });
+  toast(d.msg, d.ok ? 'ok' : 'err');
+  if (!d.ok) return;
+
+  restoreRunning = true; updateHdr(); updateButtons();
+  connectSSE('/api/restore/stream', 'restore-term', 'r-dot', ok => {
+    restoreRunning = false; updateHdr(); updateButtons(); refreshStatus();
+    if (ok) toast('Restore erfolgreich abgeschlossen!', 'ok');
+  });
+}
+
+// SSE Generic Helper
+function connectSSE(url, termId, dotId, onDone) {
+  const src = new EventSource(url);
+  const dot = document.getElementById(dotId);
+  dot.className = 't-dot run';
+  src.onmessage = e => {
+    const line = JSON.parse(e.data);
+    if (line === '__PING__' || line === 'connected') return;
+    if (line.startsWith('__DONE__')) {
+      termLine(termId, '✓ Abgeschlossen.', 'ld'); dot.className = 't-dot done';
+      onDone(true); src.close(); return;
+    }
+    if (line.startsWith('__ERROR__')) {
+      termLine(termId, line.replace('__ERROR__ ', ''), 'le'); dot.className = 't-dot err';
+      onDone(false); src.close(); return;
+    }
+    let cls = '';
+    if (line.startsWith('[NC]')) cls = 'lnc';
+    else if (line.startsWith('[✓') || line.startsWith('✓')) cls = 'll';
+    else if (line.startsWith('[✗') || line.startsWith('✗') || /error|fehler/i.test(line)) cls = 'le';
+    else if (line.startsWith('[⚠') || line.startsWith('⚠')) cls = 'lw';
+    else if (line.startsWith('[►') || line.startsWith('►')) cls = 'lh';
+    else if (line.startsWith('[') && line.includes(']')) cls = 'll';
+    termLine(termId, line, cls);
+  };
+  src.onerror = () => {
+    if (dot.className.includes('run')) {
+      termLine(termId, 'Stream-Verbindung getrennt.', 'le');
+      dot.className = 't-dot err';
+      onDone(false);
+    }
+    src.close();
+  };
+  return src;
+}
+
+function termLine(id, text, cls) {
+  const t = document.getElementById(id);
+  const ph = t.querySelector('span[style]'); if (ph) t.innerHTML = '';
+  const div = document.createElement('div');
+  if (cls) div.className = cls;
+  div.textContent = text;
+  t.appendChild(div);
+  if (t.scrollHeight - t.scrollTop - t.clientHeight < 80) t.scrollTop = t.scrollHeight;
+}
+function clearTerm(id) { document.getElementById(id).innerHTML = ''; }
+function scrollTerm(id) { const t = document.getElementById(id); t.scrollTop = t.scrollHeight; }
+
+// Schedule
+async function loadCron() {
+  const d = await (await fetch('/api/cron')).json();
+  const c = d.cron;
+  document.getElementById('daily-en').checked = c.daily_enabled;
+  document.getElementById('daily-h').value = c.daily_hour;
+  document.getElementById('daily-m').value = c.daily_minute;
+  document.getElementById('weekly-en').checked = c.weekly_enabled;
+  document.getElementById('weekly-d').value = c.weekly_day;
+  document.getElementById('weekly-h').value = c.weekly_hour;
+  document.getElementById('weekly-m').value = c.weekly_minute;
+}
+
+async function saveCron() {
+  const body = {
+    daily_enabled: document.getElementById('daily-en').checked,
+    daily_hour: +document.getElementById('daily-h').value,
+    daily_minute: +document.getElementById('daily-m').value,
+    weekly_enabled: document.getElementById('weekly-en').checked,
+    weekly_day: +document.getElementById('weekly-d').value,
+    weekly_hour: +document.getElementById('weekly-h').value,
+    weekly_minute: +document.getElementById('weekly-m').value
+  };
+  const d = await apiPost('/api/cron', body);
+  toast(d.msg, d.ok ? 'ok' : 'err');
+}
+
+// Nextcloud
+async function loadNextcloud() {
+  const d = await (await fetch('/api/nextcloud')).json();
+  const nc = d.nextcloud;
+  document.getElementById('nc-en').checked = nc.enabled;
+  document.getElementById('nc-url').value = nc.url;
+  document.getElementById('nc-user').value = nc.username;
+  document.getElementById('nc-pass').value = nc.password;
+  document.getElementById('nc-path').value = nc.remote_path;
+}
+async function saveNextcloud() {
+  const d = await apiPost('/api/nextcloud', {
+    enabled: document.getElementById('nc-en').checked,
+    url: document.getElementById('nc-url').value,
+    username: document.getElementById('nc-user').value,
+    password: document.getElementById('nc-pass').value,
+    remote_path: document.getElementById('nc-path').value
+  });
+  toast(d.msg, d.ok ? 'ok' : 'err');
+}
+async function testNextcloud() {
+  const el = document.getElementById('nc-status');
+  el.textContent = 'Prüfe Verbindung...';
+  const d = await apiPost('/api/nextcloud/test');
+  el.textContent = d.msg;
+  el.style.color = d.ok ? 'var(--accent)' : 'var(--error)';
+}
+async function uploadNow() {
+  const el = document.getElementById('nc-status');
+  el.textContent = 'Lade Dump hoch...';
+  const d = await apiPost('/api/nextcloud/upload-now');
+  el.textContent = d.msg;
+  el.style.color = d.ok ? 'var(--accent)' : 'var(--error)';
+}
+
+// Log & Stats
+async function loadLog() {
+  const d = await (await fetch('/api/log?lines=80')).json();
+  document.getElementById('log-out').textContent = d.lines.join('\n');
+  const l = document.getElementById('log-out');
+  l.scrollTop = l.scrollHeight;
+}
+
+async function loadStats() {
+  document.getElementById('stats-wrap').innerHTML = '<div style="font-family:var(--mono);font-size:.75rem;color:var(--text-dim)">Berechne...</div>';
+  const d = await (await fetch('/api/stats')).json();
+  if (!d.ok) return;
+
+  // 1. Verzeichnistabelle
+  let html = '<table class="stats-table"><thead><tr>' +
+             '<th>Verzeichnis</th>' +
+             '<th>Quelle Dateien</th>' +
+             '<th>Quelle Größe</th>' +
+             '<th>Backup Dateien</th>' +
+             '<th>Backup Größe</th>' +
+             '</tr></thead><tbody>';
+
+  d.sections.forEach(s => {
+    html += `<tr>` +
+            `<td class="name">${s.name}</td>` +
+            `<td class="dim">${s.source_files.toLocaleString()}</td>` +
+            `<td>${s.source_size}</td>` +
+            `<td class="dim">${s.backup_files.toLocaleString()}</td>` +
+            `<td>${s.backup_size}</td>` +
+            `</tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('stats-wrap').innerHTML = html;
+
+  // 2. DB-Dumps (Felder filename und size_mb / mtime abfangen)
+  const dumpsWrap = document.getElementById('dumps-wrap');
+  if (d.db_dumps && d.db_dumps.length) {
+    dumpsWrap.innerHTML = d.db_dumps.map(x => {
+      const fName = x.filename || x.name || 'Dump';
+      const fSize = x.size_mb !== undefined ? `${x.size_mb} MB` : (x.size || '—');
+      const fTime = x.mtime ? `<span style="color:var(--text-dim);margin-left:.6rem">${x.mtime}</span>` : '';
+      return `<div class="dump-item"><span>${fName}${fTime}</span><span style="color:var(--accent)">${fSize}</span></div>`;
+    }).join('');
+  } else {
+    dumpsWrap.innerHTML = '<div style="font-family:var(--mono);font-size:.75rem;color:var(--text-dim)">Keine Dumps vorhanden.</div>';
+  }
+}
+
+async function apiPost(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: body ? {'Content-Type': 'application/json'} : {},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  return res.json();
+}
+
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + (type || '');
+  setTimeout(() => el.className = '', 4000);
+}
+
+refreshStatus();
+setInterval(refreshStatus, 5000);
+</script>
+</body>
+</html>

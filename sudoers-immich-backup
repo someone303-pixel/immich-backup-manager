@@ -1,0 +1,9 @@
+# Immich Backup Manager - erlaubt timo diese Befehle ohne Passwort
+timo ALL=(ALL) NOPASSWD: /usr/bin/mount /dev/sdf2 /mnt/backup
+timo ALL=(ALL) NOPASSWD: /usr/bin/umount /mnt/backup
+timo ALL=(ALL) NOPASSWD: /usr/bin/bash -c echo 1 > /sys/block/sdf/device/delete
+timo ALL=(ALL) NOPASSWD: /usr/bin/bash -c echo '- - -' > /sys/class/scsi_host/*/scan
+timo ALL=(ALL) NOPASSWD: /usr/local/bin/immich-backup.sh
+timo ALL=(ALL) NOPASSWD: /usr/bin/crontab -u root -l
+timo ALL=(ALL) NOPASSWD: /usr/bin/crontab -u root -
+timo ALL=(ALL) NOPASSWD: /bin/mount, /bin/umount, /usr/local/bin/immich-backup.sh, /usr/bin/crontab, /bin/sh

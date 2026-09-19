@@ -1,0 +1,25 @@
+{
+  "backup_mount": "/mnt/backup",
+  "backup_script": "/usr/local/bin/immich-backup.sh",
+  "backup_uuid": "",
+  "backup_label": "Backup-SSD",
+  "backup_last_device": "",
+  "log_file": "/var/log/immich-backup.log",
+  "library_base": "/mnt/data/immich/library",
+  "immich_compose_dir": "/mnt/data/immich",
+  "nextcloud": {
+    "enabled": false,
+    "url": "https://nextcloud.example.com",
+    "username": "",
+    "remote_path": "/Documents/Backup"
+  },
+  "cron": {
+    "daily_enabled": false,
+    "daily_hour": 3,
+    "daily_minute": 0,
+    "weekly_enabled": false,
+    "weekly_day": 0,
+    "weekly_hour": 2,
+    "weekly_minute": 0
+  }
+}

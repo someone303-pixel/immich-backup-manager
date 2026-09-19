@@ -1,0 +1,16 @@
+[Unit]
+Description=Immich Backup Manager Web Interface
+After=network.target
+
+[Service]
+Type=simple
+User=timo
+WorkingDirectory=/opt/immich-backup-manager
+ExecStart=/usr/bin/python3 /opt/immich-backup-manager/app.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+# Secrets, Keys & Sessions
+.secret.key
+.flask_secret
+config.json
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Logs & temporäre Dateien
+*.log
+*.zip
+.DS_Store
