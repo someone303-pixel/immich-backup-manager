@@ -17,7 +17,9 @@ Install the required packages on your system:
 ```bash
 sudo apt-get update
 sudo apt-get install -y python3-cryptography python3-flask rsync
+
 ### 2. Copy File
+```bash
 sudo mkdir -p /opt/immich-backup-manager/templates
 sudo cp app.py /opt/immich-backup-manager/
 sudo cp templates/* /opt/immich-backup-manager/templates/
@@ -29,21 +31,27 @@ sudo chown -R $USER:$USER /opt/immich-backup-manager
 
 Allow the service user to run mount, unmount, and the backup script without entering a password:
 
+```bash
 sudo cp sudoers-immich-backup /etc/sudoers.d/immich-backup
 sudo chmod 440 /etc/sudoers.d/immich-backup
 sudo visudo -c
 
 ### 4. Enable SystemD Service
 
+```bash
 sudo cp immich-backup-manager.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now immich-backup-manager
 
+
+### Web Interace
+
 The web interface will be accessible at:
 
+```plaintext
 http://<YOUR-SERVER-IP>:8090
 
 (Default login password: immich – make sure to update it on initial setup)
 
-License
+### License
 MIT
