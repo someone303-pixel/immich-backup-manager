@@ -75,7 +75,7 @@ DEFAULT_CONFIG = {
     "immich_compose_dir": "/mnt/data/immich",
     "nextcloud": {
         "enabled": False,
-        "url": "https://plastic-images.de/nxtcloud",
+        "url": "https://nextcloud.example.com",
         "username": "",
         "password_enc": "",
         "remote_path": "/Documents/Backup",
