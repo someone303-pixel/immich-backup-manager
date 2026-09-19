@@ -15,6 +15,10 @@ A lightweight web dashboard and automation tool for managing external SSD backup
   - **Full Restore:** Complete restoration of database and media files with container lifecycle management.
 - **Encrypted Remote Sync:** Optional WebDAV upload of database dumps to a Nextcloud instance with on-disk encrypted credentials.
 - **Web UI & Live Streaming:** Real-time log and command output streaming in the browser via Server-Sent Events (SSE).
+<img width="1175" height="625" alt="stats_tab" src="https://github.com/user-attachments/assets/3961f690-9b54-4eeb-a92b-20f6b6861f24" />
+
+<img width="1180" height="438" alt="Restore_Tab" src="https://github.com/user-attachments/assets/0598c3a6-f5e7-44da-8e55-181055e5aa8b" />
+
 
 ---
 
