@@ -1,5 +1,5 @@
 #!/bin/bash
-# Immich Backup Script v2
+# Immich Backup Script v3
 # Sichert Datenbank, Library-Daten, Konfiguration und Versions-Metadaten
 
 set -euo pipefail
@@ -38,11 +38,26 @@ if docker inspect immich_server &>/dev/null; then
 fi
 log "Immich-Version: $IMMICH_VERSION"
 
-# --- Konfigurationsdateien sichern ---
+# --- Konfigurationsdateien sichern (flexible Compose-Dateinamen) ---
 log "Sichere Konfigurationsdateien..."
-if [ -f "$IMMICH_DIR/docker-compose.yml" ]; then
-    cp "$IMMICH_DIR/docker-compose.yml" "$CONFIG_BACKUP_DIR/docker-compose.yml"
+COMPOSE_FOUND=""
+for f in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+    if [ -f "$IMMICH_DIR/$f" ]; then
+        cp "$IMMICH_DIR/$f" "$CONFIG_BACKUP_DIR/$f"
+        COMPOSE_FOUND="$f"
+        log "Compose-Datei gesichert: $f"
+        # Kompatibilitäts-Fallback, falls docker-compose.yml erwartet wird
+        if [ "$f" != "docker-compose.yml" ]; then
+            cp "$IMMICH_DIR/$f" "$CONFIG_BACKUP_DIR/docker-compose.yml"
+        fi
+        break
+    fi
+done
+
+if [ -z "$COMPOSE_FOUND" ]; then
+    log "WARNUNG: Keine Compose-Datei (compose.yaml / docker-compose.yml) in $IMMICH_DIR gefunden."
 fi
+
 if [ -f "$IMMICH_DIR/.env" ]; then
     cp "$IMMICH_DIR/.env" "$CONFIG_BACKUP_DIR/.env"
 fi
@@ -53,8 +68,9 @@ cat > "$META_FILE" <<EOF
 {
   "timestamp": "$(date -Iseconds)",
   "immich_version": "$IMMICH_VERSION",
+  "compose_file": "$COMPOSE_FOUND",
   "backup_host": "$(hostname)",
-  "backup_script_version": "2"
+  "backup_script_version": "3"
 }
 EOF
 log "Metadaten geschrieben (Version: $IMMICH_VERSION)"
@@ -72,7 +88,7 @@ docker exec immich_postgres pg_dump \
 ls -tp "$DB_BACKUP_DIR"/*.dump 2>/dev/null | tail -n +8 | xargs -r rm --
 log "Datenbank-Dump abgeschlossen: $(basename $DUMP_FILE)"
 
-# --- Rsync der Library ---
+# --- Rsync der Library mit Erhalt aller Rechte und IDs ---
 log "Starte rsync für upload/..."
 rsync -aHAX --numeric-ids --delete --info=progress2 \
     "$LIBRARY_BASE/upload/" \

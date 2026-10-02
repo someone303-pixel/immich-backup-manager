@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Immich Backup Manager v4
+Immich Backup Manager v4.1
 Flask web interface for managing SSD backups of Immich data.
-Includes: UUID-based SSD management, secure password storage,
+Includes: Flexible Compose discovery (compose.yaml / docker-compose.yml),
+          UUID-based SSD management, secure password storage,
           cron scheduling, Nextcloud DB upload, statistics, and full restore.
 """
 
@@ -24,6 +25,27 @@ from cryptography.fernet import Fernet
 BASE_DIR = "/opt/immich-backup-manager"
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 KEY_FILE = os.path.join(BASE_DIR, ".secret.key")
+
+# Standard-Reihenfolge der Compose-Dateinamen laut Docker-Spezifikation
+COMPOSE_CANDIDATES = [
+    "compose.yaml",
+    "compose.yml",
+    "docker-compose.yaml",
+    "docker-compose.yml"
+]
+
+def find_compose_file(directory):
+    """Sucht nach der ersten gültigen Compose-Datei in einem Verzeichnis."""
+    if not directory:
+        return None
+    d = Path(directory)
+    if not d.is_dir():
+        return None
+    for name in COMPOSE_CANDIDATES:
+        cand = d / name
+        if cand.is_file():
+            return cand
+    return None
 
 # --- Persistent Key for Nextcloud Password ---
 def get_cipher():
@@ -53,7 +75,6 @@ def decrypt_str(cipher_text: str) -> str:
         return ""
 
 app = Flask(__name__)
-# Statischer Secret-Key für Sitzungen (Session-Drop bei Neustarts verhindern)
 SECRET_KEY_FILE = os.path.join(BASE_DIR, ".flask_secret")
 if not os.path.exists(SECRET_KEY_FILE):
     with open(SECRET_KEY_FILE, "wb") as f:
@@ -62,7 +83,6 @@ if not os.path.exists(SECRET_KEY_FILE):
 with open(SECRET_KEY_FILE, "rb") as f:
     app.secret_key = f.read()
 
-# --- Persistent Config ---
 DEFAULT_CONFIG = {
     "password_hash": generate_password_hash("immich"),
     "backup_mount": "/mnt/backup",
@@ -101,13 +121,11 @@ def load_config():
             cfg["nextcloud"] = {**DEFAULT_CONFIG["nextcloud"], **data.get("nextcloud", {})}
             cfg["cron"] = {**DEFAULT_CONFIG["cron"], **data.get("cron", {})}
 
-            # Migration: Klartextpasswort für Login -> Hash
             if "password" in data:
                 cfg["password_hash"] = generate_password_hash(data["password"])
                 del cfg["password"]
                 save_config(cfg)
 
-            # Migration: Klartextpasswort für Nextcloud -> Verschlüsselt
             if "password" in cfg["nextcloud"] and cfg["nextcloud"]["password"]:
                 cfg["nextcloud"]["password_enc"] = encrypt_str(cfg["nextcloud"]["password"])
                 del cfg["nextcloud"]["password"]
@@ -123,13 +141,11 @@ def save_config(cfg):
 
 config = load_config()
 
-# Global state
 backup_running = False
 restore_running = False
 backup_output_queue = queue.Queue()
 restore_output_queue = queue.Queue()
 
-# --- Auth Decorator ---
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -154,7 +170,6 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
-# --- Helpers ---
 def run_cmd(cmd, timeout=30):
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -175,7 +190,6 @@ def find_sata_host():
 
 def get_raid_members():
     raid_members = set()
-    # 1. Aus /proc/mdstat auslesen
     try:
         with open("/proc/mdstat", "r") as f:
             for line in f:
@@ -184,14 +198,12 @@ def get_raid_members():
                     for p in parts:
                         dev_name = p.split("[")[0].strip()
                         if dev_name.startswith("sd"):
-                            # Root-Disk abfangen (sda1 -> sda)
                             parent = "".join([c for c in dev_name if not c.isdigit()])
                             raid_members.add(dev_name)
                             raid_members.add(parent)
     except Exception:
         pass
 
-    # 2. Aus /sys/block/*/slaves auslesen
     rc, out, _ = run_cmd(["lsblk", "-J", "-d"])
     if rc == 0:
         try:
@@ -234,7 +246,6 @@ def scan_available_partitions():
                 size = part.get("size")
                 mountpoint = part.get("mountpoint") or ""
 
-                # Nur Partitionen/Devices mit Dateisystem aufnehmen
                 results.append({
                     "device": f"/dev/{p_name}",
                     "name": p_name,
@@ -260,13 +271,11 @@ def get_ssd_info():
     rc, _, _ = run_cmd(["mountpoint", "-q", mount_point])
     info["mounted"] = (rc == 0)
 
-    # Aktives Device ermitteln via findmnt
     rc_mnt, out_mnt, _ = run_cmd(["findmnt", "-no", "SOURCE", mount_point])
     if rc_mnt == 0 and out_mnt:
         info["device"] = out_mnt
         info["present"] = True
 
-    # Wenn nicht gemountet, nach UUID suchen
     target_uuid = config.get("backup_uuid")
     if target_uuid:
         rc_id, out_id, _ = run_cmd(["blkid", "-U", target_uuid])
@@ -334,7 +343,7 @@ def list_db_dumps():
 def check_config_backup():
     cfg_dir = Path(config["backup_mount"]) / "immich" / "config"
     return {
-        "compose": (cfg_dir / "docker-compose.yml").exists(),
+        "compose": find_compose_file(cfg_dir) is not None,
         "env": (cfg_dir / ".env").exists(),
     }
 
@@ -350,7 +359,7 @@ def dir_stats(path):
     except Exception:
         return 0, "?"
 
-# --- Cron Management ---
+# --- Cron ---
 CRON_TAG_DAILY  = "# immich-backup-daily"
 CRON_TAG_WEEKLY = "# immich-backup-weekly"
 
@@ -381,7 +390,7 @@ def get_cron_status():
         "weekly_active": CRON_TAG_WEEKLY in tab,
     }
 
-# --- Nextcloud Upload ---
+# --- Nextcloud ---
 def nextcloud_upload(local_path, remote_filename):
     nc = config["nextcloud"]
     decrypted_pw = decrypt_str(nc.get("password_enc", ""))
@@ -450,7 +459,6 @@ def api_sata_config_set():
     if not uuid or uuid == "KEINE_UUID":
         return jsonify({"ok": False, "msg": "Keine gültige UUID vorhanden (Partition formatiert?)"})
 
-    # Absicherung: Sicherstellen, dass UUID kein RAID-Array ist
     raid_members = get_raid_members()
     for rm in raid_members:
         rc, out, _ = run_cmd(["blkid", "-s", "UUID", "-o", "value", f"/dev/{rm}"])
@@ -475,7 +483,6 @@ def api_mount():
     if not uuid:
         return jsonify({"ok": False, "msg": "Keine Backup-SSD konfiguriert. Bitte erst im Tab 'Konfiguration' auswählen."})
 
-    # Prüfen, ob Device mit dieser UUID am Bus existiert
     rc_find, dev_path, _ = run_cmd(["blkid", "-U", uuid])
     if rc_find != 0 or not dev_path:
         return jsonify({"ok": False, "msg": f"SSD mit UUID {uuid} wurde nicht gefunden. Bitte anstecken & 'Scan' drücken."})
@@ -499,7 +506,6 @@ def api_unmount():
     if rc != 0:
         return jsonify({"ok": True, "msg": "SSD war nicht gemountet."})
 
-    # Gemountetes Device ermitteln
     rc_f, src_dev, _ = run_cmd(["findmnt", "-no", "SOURCE", mount_point])
     device_name = ""
     if rc_f == 0 and src_dev.startswith("/dev/"):
@@ -509,7 +515,6 @@ def api_unmount():
     if rc_u != 0:
         return jsonify({"ok": False, "msg": f"Unmount fehlgeschlagen: {err_u}"})
 
-    # SCSI Delete triggern
     if device_name:
         parent = "".join([c for c in device_name if not c.isdigit()])
         delete_path = f"/sys/block/{parent}/device/delete"
@@ -657,10 +662,12 @@ def api_restore_start():
 
         try:
             compose_dir = config["immich_compose_dir"]
+            found_compose = find_compose_file(compose_dir)
+            compose_args = ["-f", str(found_compose)] if found_compose else ["--project-directory", compose_dir]
 
             if mode in ("db_only", "full"):
                 log("Stoppe Immich-Container...", "head")
-                rc, _, err = run_cmd(["docker", "compose", "-f", f"{compose_dir}/docker-compose.yml", "down"], timeout=60)
+                rc, _, err = run_cmd(["docker", "compose", *compose_args, "down"], timeout=60)
                 if rc != 0:
                     log(f"docker compose down fehlgeschlagen: {err}", "err")
                     q.put("__ERROR__ Container konnte nicht gestoppt werden.")
@@ -680,7 +687,7 @@ def api_restore_start():
                         continue
                     log(f"rsync {src_name}/...", "info")
                     proc = subprocess.Popen(
-                        ["rsync", "-a", "--delete", "--info=progress2", src, dst],
+                        ["rsync", "-aHAX", "--numeric-ids", "--delete", "--info=progress2", src, dst],
                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
                     )
                     for line in proc.stdout:
@@ -694,7 +701,7 @@ def api_restore_start():
 
             if mode in ("db_only", "full"):
                 log("Starte Datenbank-Container...", "head")
-                rc, _, err = run_cmd(["docker", "compose", "-f", f"{compose_dir}/docker-compose.yml", "up", "-d", "database"], timeout=60)
+                rc, _, err = run_cmd(["docker", "compose", *compose_args, "up", "-d", "database"], timeout=60)
                 if rc != 0:
                     log(f"Datenbank-Start fehlgeschlagen: {err}", "err")
                     q.put("__ERROR__ Datenbank konnte nicht gestartet werden.")
@@ -726,7 +733,7 @@ def api_restore_start():
                 log("Datenbank-Restore abgeschlossen.", "ok")
 
                 log("Starte alle Immich-Container...", "head")
-                rc, _, err = run_cmd(["docker", "compose", "-f", f"{compose_dir}/docker-compose.yml", "up", "-d"], timeout=60)
+                rc, _, err = run_cmd(["docker", "compose", *compose_args, "up", "-d"], timeout=60)
                 if rc != 0:
                     log(f"docker compose up fehlgeschlagen: {err}", "err")
                     q.put("__ERROR__ Container konnten nicht gestartet werden.")
