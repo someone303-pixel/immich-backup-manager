@@ -874,6 +874,31 @@ function toast(msg, type) {
 
 refreshStatus();
 setInterval(refreshStatus, 5000);
+function loadComposeFileInfo() {
+  fetch('/api/restore/info')
+    .then(res => res.json())
+    .then(data => {
+      if (data.ok) {
+        const badge = document.getElementById('detected-compose-name');
+        const input = document.getElementById('cfg-compose-file');
+        if (badge) {
+          badge.innerText = data.active_compose_file || 'Nicht gefunden';
+        }
+        if (input && data.configured_compose_file !== undefined) {
+          input.value = data.configured_compose_file;
+        }
+      }
+    })
+    .catch(err => {
+      const badge = document.getElementById('detected-compose-name');
+      if (badge) badge.innerText = 'Fehler beim Laden';
+      console.error('Fehler beim Abrufen der Compose-Info:', err);
+    });
+}
+
+// Beim Laden der Seite direkt einmal ausführen
+document.addEventListener('DOMContentLoaded', loadComposeFileInfo);
+
 </script>
 </body>
 </html>
