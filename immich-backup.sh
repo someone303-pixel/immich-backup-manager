@@ -9,8 +9,24 @@ BACKUP_ROOT="/mnt/backup/immich"
 DB_BACKUP_DIR="$BACKUP_ROOT/database"
 CONFIG_BACKUP_DIR="$BACKUP_ROOT/config"
 LOG_FILE="/var/log/immich-backup.log"
-IMMICH_DIR="/mnt/data/immich"
-LIBRARY_BASE="$IMMICH_DIR/library"
+# --- Dynamische Pfad-Ermittlung ---
+# 1. Parameter prüfen, falls durch app.py/CLI übergeben ($1 = Compose-Dir, $2 = Library-Base)
+IMMICH_DIR="${1:-}"
+LIBRARY_BASE="${2:-}"
+
+# 2. Falls nicht übergeben: Arbeitsverzeichnis direkt aus laufendem Container auslesen
+if [ -z "$IMMICH_DIR" ] && docker inspect immich_server &>/dev/null; then
+    DETECTED_DIR=$(docker inspect immich_server --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null || true)
+    if [ -n "$DETECTED_DIR" ] && [ "$DETECTED_DIR" != "<no value>" ] && [ -d "$DETECTED_DIR" ]; then
+        IMMICH_DIR="$DETECTED_DIR"
+    fi
+fi
+
+# 3. Fallbacks setzen, falls Container aus ist und kein Parameter übergeben wurde
+IMMICH_DIR="${IMMICH_DIR:-/mnt/data/immich}"
+if [ -z "$LIBRARY_BASE" ]; then
+    LIBRARY_BASE="$IMMICH_DIR/library"
+fi
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
