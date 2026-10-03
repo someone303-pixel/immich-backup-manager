@@ -34,17 +34,51 @@ COMPOSE_CANDIDATES = [
     "docker-compose.yml"
 ]
 
-def find_compose_file(directory):
-    """Sucht nach der ersten gültigen Compose-Datei in einem Verzeichnis."""
+def find_compose_file(directory, override_name=""):
+    """
+    Sucht nach der Compose-Datei:
+    1. Expliziter Override aus Config
+    2. Docker-Container-Inspektion (falls Container läuft)
+    3. Offizielle Docker-Compose-Standards
+    4. Mustererkennung (*compose*.y*ml)
+    """
     if not directory:
         return None
     d = Path(directory)
     if not d.is_dir():
         return None
+
+    # 1. Manueller Override
+    custom_name = override_name or config.get("compose_filename", "").strip()
+    if custom_name:
+        custom_path = d / custom_name
+        if custom_path.is_file():
+            return custom_path
+
+    # 2. Container Label Inspektion
+    rc, out, _ = run_cmd(["docker", "inspect", "immich_server",
+                           "--format", '{{index .Config.Labels "com.docker.compose.project.config_files"}}'])
+    if rc == 0 and out and out != "<no value>":
+        first_cfg = out.split(",")[0].strip()
+        p = Path(first_cfg)
+        # Prüfen ob Pfad direkt existiert oder relativ im Verzeichnis liegt
+        if p.is_file():
+            return p
+        if (d / p.name).is_file():
+            return d / p.name
+
+    # 3. Offizielle Standardnamen
     for name in COMPOSE_CANDIDATES:
         cand = d / name
         if cand.is_file():
             return cand
+
+    # 4. Fallback-Mustererkennung
+    for pattern in ["*compose*.yml", "*compose*.yaml"]:
+        matches = list(d.glob(pattern))
+        if matches:
+            return matches[0]
+
     return None
 
 # --- Persistent Key for Nextcloud Password ---
@@ -93,6 +127,7 @@ DEFAULT_CONFIG = {
     "log_file": "/var/log/immich-backup.log",
     "library_base": "/mnt/data/immich/library",
     "immich_compose_dir": "/mnt/data/immich",
+    "compose_filename": "",  # empty = automatic discovery
     "nextcloud": {
         "enabled": False,
         "url": "https://nextcloud.example.com",
@@ -606,6 +641,7 @@ def api_restore_info():
     meta  = get_backup_meta()
     cfg_backup = check_config_backup()
     running_version = get_running_immich_version()
+    found = find_compose_file(config.get("immich_compose_dir"))
 
     version_warnings = [
         d["filename"] for d in dumps
@@ -620,6 +656,8 @@ def api_restore_info():
         "running_version": running_version,
         "version_warnings": version_warnings,
         "ssd_mounted": get_ssd_info()["mounted"],
+        "active_compose_file": found.name if found else "Nicht gefunden",
+        "configured_compose_file": config.get("compose_filename", ""),
     })
 
 @app.route("/api/restore/start", methods=["POST"])
@@ -797,6 +835,20 @@ def api_stats():
                         "backup_files": dc, "backup_size": ds})
     dumps = list_db_dumps()[:5]
     return jsonify({"ok": True, "sections": results, "db_dumps": dumps})
+
+@app.route("/api/config/compose", methods=["POST"])
+@login_required
+def api_config_compose_set():
+    data = request.json
+    filename = data.get("compose_filename", "").strip()
+    config["compose_filename"] = filename
+    save_config(config)
+    found = find_compose_file(config.get("immich_compose_dir"))
+    return jsonify({
+        "ok": True, 
+        "msg": "Compose-Einstellung gespeichert.",
+        "detected": found.name if found else "Nicht gefunden"
+    })
 
 # Cron
 @app.route("/api/cron", methods=["GET"])

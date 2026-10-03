@@ -38,30 +38,60 @@ if docker inspect immich_server &>/dev/null; then
 fi
 log "Immich-Version: $IMMICH_VERSION"
 
-# --- Konfigurationsdateien sichern (flexible Compose-Dateinamen) ---
+# --- Konfigurationsdateien sichern (Auto-Inspect + Fallbacks) ---
 log "Sichere Konfigurationsdateien..."
 COMPOSE_FOUND=""
-for f in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
-    if [ -f "$IMMICH_DIR/$f" ]; then
-        cp "$IMMICH_DIR/$f" "$CONFIG_BACKUP_DIR/$f"
-        COMPOSE_FOUND="$f"
-        log "Compose-Datei gesichert: $f"
-        # Kompatibilitäts-Fallback, falls docker-compose.yml erwartet wird
-        if [ "$f" != "docker-compose.yml" ]; then
-            cp "$IMMICH_DIR/$f" "$CONFIG_BACKUP_DIR/docker-compose.yml"
+
+# Stufe 1: Live-Inspektion des laufenden Containers
+if docker inspect immich_server &>/dev/null; then
+    LABEL_FILES=$(docker inspect immich_server --format='{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null || true)
+    if [ -n "$LABEL_FILES" ] && [ "$LABEL_FILES" != "<no value>" ]; then
+        # Ersten Pfad nehmen, falls mehrere kommagetrennt sind
+        FIRST_CFG=$(echo "$LABEL_FILES" | cut -d',' -f1 | tr -d ' ')
+        if [ -f "$FIRST_CFG" ]; then
+            COMPOSE_BASENAME=$(basename "$FIRST_CFG")
+            cp "$FIRST_CFG" "$CONFIG_BACKUP_DIR/$COMPOSE_BASENAME"
+            COMPOSE_FOUND="$COMPOSE_BASENAME"
+            log "Compose-Datei via Container-Label gefunden und gesichert: $COMPOSE_BASENAME"
         fi
-        break
     fi
-done
+fi
+
+# Stufe 2: Standard-Namenssuche im Immich-Verzeichnis
+if [ -z "$COMPOSE_FOUND" ]; then
+    for f in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+        if [ -f "$IMMICH_DIR/$f" ]; then
+            cp "$IMMICH_DIR/$f" "$CONFIG_BACKUP_DIR/$f"
+            COMPOSE_FOUND="$f"
+            log "Compose-Datei nach Standardname gesichert: $f"
+            break
+        fi
+    done
+fi
+
+# Stufe 3: Fallback auf *compose*.y*ml im Verzeichnis
+if [ -z "$COMPOSE_FOUND" ]; then
+    MATCH=$(find "$IMMICH_DIR" -maxdepth 1 -type f \( -name "*compose*.yml" -o -name "*compose*.yaml" \) 2>/dev/null | head -n 1 || true)
+    if [ -n "$MATCH" ] && [ -f "$MATCH" ]; then
+        COMPOSE_BASENAME=$(basename "$MATCH")
+        cp "$MATCH" "$CONFIG_BACKUP_DIR/$COMPOSE_BASENAME"
+        COMPOSE_FOUND="$COMPOSE_BASENAME"
+        log "Compose-Datei via Muster-Fallback gesichert: $COMPOSE_BASENAME"
+    fi
+fi
+
+# Kompatibilitäts-Fallback: immer eine docker-compose.yml im Backup bereitstellen
+if [ -n "$COMPOSE_FOUND" ] && [ "$COMPOSE_FOUND" != "docker-compose.yml" ]; then
+    cp "$CONFIG_BACKUP_DIR/$COMPOSE_FOUND" "$CONFIG_BACKUP_DIR/docker-compose.yml"
+fi
 
 if [ -z "$COMPOSE_FOUND" ]; then
-    log "WARNUNG: Keine Compose-Datei (compose.yaml / docker-compose.yml) in $IMMICH_DIR gefunden."
+    log "WARNUNG: Keine Compose-Datei gefunden."
 fi
 
 if [ -f "$IMMICH_DIR/.env" ]; then
     cp "$IMMICH_DIR/.env" "$CONFIG_BACKUP_DIR/.env"
 fi
-
 # --- Metadaten schreiben ---
 META_FILE="$BACKUP_ROOT/meta.json"
 cat > "$META_FILE" <<EOF
